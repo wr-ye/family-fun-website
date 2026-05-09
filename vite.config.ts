@@ -1,26 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
+import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') }
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) }
   },
   server: {
     host: '0.0.0.0',
     allowedHosts: true,
     port: 5173,
     proxy: {
-      // 百度翻译 TTS 代理（绕过 CORS）
+      // TTS 代理（与 Cloudflare Pages Function 保持相同接口）
       '/tts': {
-        target: 'https://fanyi.baidu.com',
+        target: 'https://dict.youdao.com',
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/tts/, '/gettts'),
-        headers: {
-          'Referer': 'https://fanyi.baidu.com/',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        rewrite: (p) => p.replace(/^\/tts/, '/dictvoice')
       }
     }
   }
