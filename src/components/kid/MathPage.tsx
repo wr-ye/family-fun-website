@@ -50,14 +50,14 @@ export default function MathPage() {
         const newQ = generateQuestion(gameType!)
         setQuestion(newQ)
         setFeedback(null)
-        // 朗读下一题
-        setTimeout(() => speak(newQ.question), 500)
-      }, 2000)
+        // 朗读下一题（等待上一句 TTS 播完约 1.5s）
+        setTimeout(() => speak(newQ.question), 1600)
+      }, 2500)
     } else {
       setFeedback('wrong')
       playWrongSound()
       setTimeout(() => speak('再想想哦'), 200)
-      setTimeout(() => setFeedback(null), 1500)
+      setTimeout(() => setFeedback(null), 2000)
     }
   }, [question, feedback, gameType, completeMath])
 

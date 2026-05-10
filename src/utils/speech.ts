@@ -1,40 +1,17 @@
 /**
  * 语音朗读工具
  *
- * 方案：
- * 1. Web Speech API（浏览器原生，查找中文语音）
- * 2. TTS 代理（有道中文语音 type=1，后备）
+ * 策略：代理 TTS 立即触发，Web Speech 等 200ms 再并行尝试（双路竞争）
  */
 
 let speakingId = 0
 let currentAudio: HTMLAudioElement | null = null
-let availableVoices: SpeechSynthesisVoice[] = []
 
 function calcTimeout(text: string): number {
   return Math.max(text.length * 400 + 3000, 6000)
 }
 
-/** 获取中文语音 */
-function getChineseVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
-  if (availableVoices.length === 0) {
-    availableVoices = synth.getVoices()
-  }
-  // 优先找 lang 包含 zh 的
-  const zh = availableVoices.find(v => v.lang.includes('zh'))
-  if (zh) {
-    console.log('[语音] 找到中文语音:', zh.name, zh.lang)
-    return zh
-  }
-  // 其次找任何中文相关的
-  const any = availableVoices.find(v => v.lang.includes('CN') || v.lang.includes('cn'))
-  if (any) {
-    console.log('[语音] 找到中文语音(备用):', any.name, any.lang)
-    return any
-  }
-  return null
-}
-
-/** 通过 TTS 代理请求语音 */
+/** 通过 TTS 代理请求语音（百度/有道/腾讯三级备用） */
 function playProxyTTS(text: string, id: number): Promise<boolean> {
   return new Promise((resolve) => {
     try {
@@ -64,7 +41,7 @@ function playProxyTTS(text: string, id: number): Promise<boolean> {
             URL.revokeObjectURL(audioUrl)
             currentAudio = null
             if (!audioValid && id === speakingId) {
-              console.warn(`[语音] 代理 TTS 无声, 时长 ${audio.duration.toFixed(2)}s`)
+              console.warn(`[语音] 代理 TTS 无声, ${audio.duration.toFixed(2)}s`)
               resolve(false)
             } else {
               resolve(true)
@@ -73,11 +50,11 @@ function playProxyTTS(text: string, id: number): Promise<boolean> {
           audio.onerror = () => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) }
 
           audio.play().then(() => {
-            if (id === speakingId) console.log(`[语音] 代理 TTS: "${clean.substring(0, 20)}" (${(blob.size / 1024).toFixed(0)}KB)`)
+            if (id === speakingId) console.log(`[语音] 代理: "${clean.substring(0, 20)}" (${(blob.size / 1024).toFixed(0)}KB)`)
           }).catch(() => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) })
         })
         .catch(e => {
-          if (id === speakingId) console.warn('[语音] 代理 TTS 请求失败:', e.message)
+          if (id === speakingId) console.warn('[语音] 代理 TTS 失败:', e.message)
           resolve(false)
         })
 
@@ -93,11 +70,12 @@ export function initSpeech() {
   initialized = true
   const synth = window.speechSynthesis
   if (synth) {
-    // 立即尝试获取 voices（有些浏览器需要）
-    availableVoices = synth.getVoices()
+    // 强制触发 voices 加载
+    synth.getVoices()
     synth.onvoiceschanged = () => {
-      availableVoices = synth.getVoices()
-      console.log('[语音] voices loaded:', availableVoices.map(v => `${v.name}(${v.lang})`).slice(0, 10).join(', '))
+      const voices = synth.getVoices()
+      const zh = voices.find(v => v.lang.includes('zh'))
+      console.log('[语音] voices loaded:', zh ? `${zh.name}(${zh.lang})` : 'no zh voice')
     }
   }
 }
@@ -107,48 +85,44 @@ export function speak(text: string) {
 
   const id = ++speakingId
 
-  // 停止正在播放的 HTML 音频
+  // 停止正在播放的音频
   if (currentAudio) {
     try { currentAudio.pause(); currentAudio.src = '' } catch {}
     currentAudio = null
   }
 
-  const synth = window.speechSynthesis
-  if (synth) {
-    const voice = getChineseVoice(synth)
+  // === 代理 TTS 立即触发（不走 Web Speech 的延迟）===
+  playProxyTTS(text, id).then(ok => {
+    if (ok && id === speakingId) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
+  })
+
+  // === Web Speech 200ms 后尝试（双保险，可能更快但不可靠）===
+  setTimeout(() => {
+    if (id !== speakingId) return
+    const synth = window.speechSynthesis
+    if (!synth) return
 
     const u = new SpeechSynthesisUtterance(text)
     u.lang = 'zh-CN'
     u.rate = 0.85
     u.pitch = 1.0
     u.volume = 1
-    if (voice) u.voice = voice
 
     let started = false
     u.onstart = () => {
       started = true
-      if (id === speakingId) console.log('[语音] Web Speech 开始, voice:', voice?.name || 'default')
+      // Web Speech 先发出来了 → 停止代理 TTS
+      if (currentAudio) { try { currentAudio.pause(); currentAudio.src = '' } catch {}; currentAudio = null }
+      if (id === speakingId) console.log('[语音] Web Speech 开始 ✓')
     }
-    u.onend = () => {
-      if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
-    }
-    u.onerror = (e) => {
-      if (id === speakingId) console.warn('[语音] Web Speech 错误:', e.error)
+    u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
+    u.onerror = () => {
+      if (started) return // 已经开始的忽略
+      if (id === speakingId) console.warn('[语音] Web Speech 失败（正常，不影响代理）')
     }
 
     synth.speak(u)
-  }
-
-  // 代理 TTS 作为后备（1.5s 后）
-  setTimeout(async () => {
-    if (id !== speakingId) return
-    const proxyOk = await playProxyTTS(text, id)
-    if (proxyOk && id === speakingId) {
-      console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
-    } else if (id === speakingId) {
-      console.warn(`[语音] ✗ 全部失败: "${text.substring(0, 20)}"`)
-    }
-  }, 1500)
+  }, 200)
 }
 
 export function stopSpeaking() {
