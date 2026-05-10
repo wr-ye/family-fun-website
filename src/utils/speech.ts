@@ -2,15 +2,36 @@
  * 语音朗读工具
  *
  * 方案：
- * 1. Web Speech API（浏览器原生，同步触发）
+ * 1. Web Speech API（浏览器原生，查找中文语音）
  * 2. TTS 代理（有道中文语音 type=1，后备）
  */
 
 let speakingId = 0
 let currentAudio: HTMLAudioElement | null = null
+let availableVoices: SpeechSynthesisVoice[] = []
 
 function calcTimeout(text: string): number {
   return Math.max(text.length * 400 + 3000, 6000)
+}
+
+/** 获取中文语音 */
+function getChineseVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+  if (availableVoices.length === 0) {
+    availableVoices = synth.getVoices()
+  }
+  // 优先找 lang 包含 zh 的
+  const zh = availableVoices.find(v => v.lang.includes('zh'))
+  if (zh) {
+    console.log('[语音] 找到中文语音:', zh.name, zh.lang)
+    return zh
+  }
+  // 其次找任何中文相关的
+  const any = availableVoices.find(v => v.lang.includes('CN') || v.lang.includes('cn'))
+  if (any) {
+    console.log('[语音] 找到中文语音(备用):', any.name, any.lang)
+    return any
+  }
+  return null
 }
 
 /** 通过 TTS 代理请求语音 */
@@ -18,8 +39,7 @@ function playProxyTTS(text: string, id: number): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
-      // type=1 为中文语音
-      const proxyUrl = `/tts?audio=${encodeURIComponent(clean)}&type=1`
+      const proxyUrl = `/tts?audio=${encodeURIComponent(clean)}`
 
       fetch(proxyUrl)
         .then(r => {
@@ -71,9 +91,14 @@ let initialized = false
 export function initSpeech() {
   if (initialized) return
   initialized = true
-  if (window.speechSynthesis) {
-    window.speechSynthesis.getVoices()
-    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices()
+  const synth = window.speechSynthesis
+  if (synth) {
+    // 立即尝试获取 voices（有些浏览器需要）
+    availableVoices = synth.getVoices()
+    synth.onvoiceschanged = () => {
+      availableVoices = synth.getVoices()
+      console.log('[语音] voices loaded:', availableVoices.map(v => `${v.name}(${v.lang})`).slice(0, 10).join(', '))
+    }
   }
 }
 
@@ -88,42 +113,42 @@ export function speak(text: string) {
     currentAudio = null
   }
 
-  // === 方案1: Web Speech API（同步！不中断用户手势链） ===
   const synth = window.speechSynthesis
   if (synth) {
-    try {
-      const u = new SpeechSynthesisUtterance(text)
-      u.lang = 'zh-CN'
-      u.rate = 0.85
-      u.pitch = 1.0
-      u.volume = 1
+    const voice = getChineseVoice(synth)
 
-      let started = false
-      u.onstart = () => {
-        started = true
-        if (id === speakingId) console.log('[语音] Web Speech 开始')
-      }
-      u.onend = () => {
-        if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
-      }
-      u.onerror = () => { if (id === speakingId) console.warn('[语音] Web Speech 错误') }
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'zh-CN'
+    u.rate = 0.85
+    u.pitch = 1.0
+    u.volume = 1
+    if (voice) u.voice = voice
 
-      synth.speak(u)
-    } catch {}
+    let started = false
+    u.onstart = () => {
+      started = true
+      if (id === speakingId) console.log('[语音] Web Speech 开始, voice:', voice?.name || 'default')
+    }
+    u.onend = () => {
+      if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
+    }
+    u.onerror = (e) => {
+      if (id === speakingId) console.warn('[语音] Web Speech 错误:', e.error)
+    }
+
+    synth.speak(u)
   }
 
-  // === 方案2: 代理 TTS（异步并行，等 1s 再决定是否必需） ===
+  // 代理 TTS 作为后备（1.5s 后）
   setTimeout(async () => {
     if (id !== speakingId) return
-    // 1s 后 Web Speech 还没发声 → 走代理
-    console.warn('[语音] Web Speech 1s 超时，尝试代理 TTS...')
     const proxyOk = await playProxyTTS(text, id)
     if (proxyOk && id === speakingId) {
       console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
     } else if (id === speakingId) {
       console.warn(`[语音] ✗ 全部失败: "${text.substring(0, 20)}"`)
     }
-  }, 1000)
+  }, 1500)
 }
 
 export function stopSpeaking() {
