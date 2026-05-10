@@ -9,7 +9,7 @@ import { MathQuestion } from '@/types'
 type GameType = 'count' | 'compare' | 'addsub'
 
 const gameConfig = [
-  { type: 'count' as GameType, label: '🔢 数一数', desc: '数一数有几个' },
+  { type: 'count' as GameType, label: '🔢 看看', desc: '看看有几个' },
   { type: 'compare' as GameType, label: '⚖️ 比大小', desc: '哪边更多' },
   { type: 'addsub' as GameType, label: '🧮 加减法', desc: '简单加减' },
 ]

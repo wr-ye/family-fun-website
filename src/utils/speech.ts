@@ -11,18 +11,11 @@ function calcTimeout(text: string): number {
   return Math.max(text.length * 400 + 3000, 6000)
 }
 
-/** 多音字纠错：替换成 TTS 能正确朗读的文本 */
-function fixPolyphone(text: string): string {
-  // "数一数" 会被 TTS 读成 sū，改用无多音字的"看看"
-  return text.replace(/数一数/g, '看看')
-}
-
 /** 通过 TTS 代理请求语音（百度/有道/腾讯三级备用） */
 function playProxyTTS(text: string, id: number): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const speechText = fixPolyphone(text)
-      const clean = speechText.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
+      const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
       const proxyUrl = `/tts?audio=${encodeURIComponent(clean)}`
 
       fetch(proxyUrl)
