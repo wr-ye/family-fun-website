@@ -11,11 +11,18 @@ function calcTimeout(text: string): number {
   return Math.max(text.length * 400 + 3000, 6000)
 }
 
+/** 多音字纠错：替换成 TTS 能正确朗读的文本 */
+function fixPolyphone(text: string): string {
+  // "数一数" 会被 TTS 读成 sūyīsū，改用带上下文的形式
+  return text.replace(/数一数/g, '数一数个数')
+}
+
 /** 通过 TTS 代理请求语音（百度/有道/腾讯三级备用） */
 function playProxyTTS(text: string, id: number): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
+      const speechText = fixPolyphone(text)
+      const clean = speechText.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
       const proxyUrl = `/tts?audio=${encodeURIComponent(clean)}`
 
       fetch(proxyUrl)
@@ -79,31 +86,6 @@ export function initSpeech() {
   }
 }
 
-function tryWebSpeech(text: string, id: number): boolean {
-  const synth = window.speechSynthesis
-  if (!synth) return false
-
-  const u = new SpeechSynthesisUtterance(text)
-  u.lang = 'zh-CN'
-  u.rate = 0.85
-  u.pitch = 1.0
-  u.volume = 1
-
-  let started = false
-  u.onstart = () => {
-    started = true
-    if (id === speakingId) console.log('[语音] Web Speech ✓')
-  }
-  u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
-  u.onerror = () => {
-    if (started) return
-    if (id === speakingId) console.warn('[语音] Web Speech 失败')
-  }
-
-  synth.speak(u)
-  return true
-}
-
 export function speak(text: string) {
   if (!text || text.trim().length === 0) return
 
@@ -115,20 +97,7 @@ export function speak(text: string) {
     currentAudio = null
   }
 
-  // "数一数"多音字 → 只用 Web Speech（Google 语音读得准）
-  if (text.includes('数一数')) {
-    tryWebSpeech(text, id)
-    // 代理 TTS 作为备用（2s 后 Web Speech 还没发声再用）
-    setTimeout(() => {
-      if (id !== speakingId) return
-      const synth = window.speechSynthesis
-      if (synth?.speaking) return
-      playProxyTTS(text, id)
-    }, 2000)
-    return
-  }
-
-  // === 其他文本：代理 TTS 立即触发 ===
+  // === 代理 TTS 立即触发（预处理多音字）===
   playProxyTTS(text, id)
 
   // === Web Speech 200ms 后备用 ===
@@ -137,7 +106,25 @@ export function speak(text: string) {
     const synth = window.speechSynthesis
     if (!synth || synth.speaking) return
     if (currentAudio) return
-    tryWebSpeech(text, id)
+
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'zh-CN'
+    u.rate = 0.85
+    u.pitch = 1.0
+    u.volume = 1
+
+    let started = false
+    u.onstart = () => {
+      started = true
+      if (id === speakingId) console.log('[语音] Web Speech ✓')
+    }
+    u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
+    u.onerror = () => {
+      if (started) return
+      if (id === speakingId) console.warn('[语音] Web Speech 失败')
+    }
+
+    synth.speak(u)
   }, 200)
 }
 
