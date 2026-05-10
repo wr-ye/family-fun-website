@@ -35,6 +35,13 @@ function playProxyTTS(text: string, id: number): Promise<boolean> {
           audio.volume = 1
           currentAudio = audio
 
+          // 检查音频实际时长，过滤无声或无效音频
+          audio.addEventListener('loadedmetadata', () => {
+            if (audio.duration < 0.3 && id === speakingId) {
+              console.warn(`[语音] 代理 TTS 音频时长过短: ${audio.duration.toFixed(2)}s`)
+            }
+          })
+
           audio.onended = () => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(true) }
           audio.onerror = () => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) }
 
@@ -96,13 +103,10 @@ export async function speak(text: string) {
   } catch {}
 
   let ok = false
-  if (text.length <= 50) {
-    ok = await playProxyTTS(text, id)
-    if (!ok && id === speakingId) ok = await playWebSpeech(text, id)
-  } else {
-    ok = await playWebSpeech(text, id)
-    if (!ok && id === speakingId) ok = await playProxyTTS(text, id)
-  }
+  // Web Speech API 优先（浏览器原生，实际有声音）
+  ok = await playWebSpeech(text, id)
+  // 代理 TTS 作为后备
+  if (!ok && id === speakingId) ok = await playProxyTTS(text, id)
 
   if (ok && id === speakingId) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
   else if (id === speakingId) console.warn(`[语音] ✗ 全部失败: "${text.substring(0, 20)}"`)
