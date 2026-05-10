@@ -13,8 +13,8 @@ function calcTimeout(text: string): number {
 
 /** 多音字纠错：替换成 TTS 能正确朗读的文本 */
 function fixPolyphone(text: string): string {
-  // "数一数" 会被 TTS 读成 sūyīsū，改用带上下文的形式
-  return text.replace(/数一数/g, '数一数个数')
+  // "数一数" 会被 TTS 读成 sū，改用无多音字的"看看"
+  return text.replace(/数一数/g, '看看')
 }
 
 /** 通过 TTS 代理请求语音（百度/有道/腾讯三级备用） */
