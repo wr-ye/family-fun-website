@@ -79,6 +79,31 @@ export function initSpeech() {
   }
 }
 
+function tryWebSpeech(text: string, id: number): boolean {
+  const synth = window.speechSynthesis
+  if (!synth) return false
+
+  const u = new SpeechSynthesisUtterance(text)
+  u.lang = 'zh-CN'
+  u.rate = 0.85
+  u.pitch = 1.0
+  u.volume = 1
+
+  let started = false
+  u.onstart = () => {
+    started = true
+    if (id === speakingId) console.log('[语音] Web Speech ✓')
+  }
+  u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
+  u.onerror = () => {
+    if (started) return
+    if (id === speakingId) console.warn('[语音] Web Speech 失败')
+  }
+
+  synth.speak(u)
+  return true
+}
+
 export function speak(text: string) {
   if (!text || text.trim().length === 0) return
 
@@ -90,7 +115,20 @@ export function speak(text: string) {
     currentAudio = null
   }
 
-  // === 代理 TTS 立即触发 ===
+  // "数一数"多音字 → 只用 Web Speech（Google 语音读得准）
+  if (text.includes('数一数')) {
+    tryWebSpeech(text, id)
+    // 代理 TTS 作为备用（2s 后 Web Speech 还没发声再用）
+    setTimeout(() => {
+      if (id !== speakingId) return
+      const synth = window.speechSynthesis
+      if (synth?.speaking) return
+      playProxyTTS(text, id)
+    }, 2000)
+    return
+  }
+
+  // === 其他文本：代理 TTS 立即触发 ===
   playProxyTTS(text, id)
 
   // === Web Speech 200ms 后备用 ===
@@ -98,26 +136,8 @@ export function speak(text: string) {
     if (id !== speakingId) return
     const synth = window.speechSynthesis
     if (!synth || synth.speaking) return
-    if (currentAudio) return // 代理 TTS 已经在读了
-
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'zh-CN'
-    u.rate = 0.85
-    u.pitch = 1.0
-    u.volume = 1
-
-    let started = false
-    u.onstart = () => {
-      started = true
-      if (id === speakingId) console.log('[语音] Web Speech ✓')
-    }
-    u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
-    u.onerror = () => {
-      if (started) return
-      if (id === speakingId) console.warn('[语音] Web Speech 失败')
-    }
-
-    synth.speak(u)
+    if (currentAudio) return
+    tryWebSpeech(text, id)
   }, 200)
 }
 
