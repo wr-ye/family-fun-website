@@ -1,7 +1,7 @@
 /**
  * 语音朗读工具
  *
- * 策略：中文优先 Web Speech（Google 语音多音字处理更好），代理 TTS 作为备用
+ * 策略：代理 TTS 立即触发，Web Speech 200ms 后备用（双保险）
  */
 
 let speakingId = 0
@@ -63,32 +63,6 @@ function playProxyTTS(text: string, id: number): Promise<boolean> {
   })
 }
 
-/** Web Speech API 朗读中文 */
-function speakWebSpeech(text: string, id: number) {
-  const synth = window.speechSynthesis
-  if (!synth) return
-
-  const u = new SpeechSynthesisUtterance(text)
-  u.lang = 'zh-CN'
-  u.rate = 0.85
-  u.pitch = 1.0
-  u.volume = 1
-
-  let started = false
-  u.onstart = () => {
-    started = true
-    if (currentAudio) { try { currentAudio.pause(); currentAudio.src = '' } catch {}; currentAudio = null }
-    if (id === speakingId) console.log('[语音] Web Speech ✓')
-  }
-  u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
-  u.onerror = () => {
-    if (started) return
-    if (id === speakingId) console.warn('[语音] Web Speech 失败，备用代理 TTS')
-  }
-
-  synth.speak(u)
-}
-
 let initialized = false
 
 export function initSpeech() {
@@ -115,18 +89,36 @@ export function speak(text: string) {
     try { currentAudio.pause(); currentAudio.src = '' } catch {}
     currentAudio = null
   }
-  window.speechSynthesis?.cancel()
 
-  // === 中文优先 Web Speech（Google 语音多音字处理更好）===
-  speakWebSpeech(text, id)
+  // === 代理 TTS 立即触发 ===
+  playProxyTTS(text, id)
 
-  // === 代理 TTS 作为备用（500ms 后还没开始就用）===
+  // === Web Speech 200ms 后备用 ===
   setTimeout(() => {
     if (id !== speakingId) return
     const synth = window.speechSynthesis
-    if (synth?.speaking) return // Web Speech 还在读，不需要备用
-    playProxyTTS(text, id)
-  }, 500)
+    if (!synth || synth.speaking) return
+    if (currentAudio) return // 代理 TTS 已经在读了
+
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'zh-CN'
+    u.rate = 0.85
+    u.pitch = 1.0
+    u.volume = 1
+
+    let started = false
+    u.onstart = () => {
+      started = true
+      if (id === speakingId) console.log('[语音] Web Speech ✓')
+    }
+    u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
+    u.onerror = () => {
+      if (started) return
+      if (id === speakingId) console.warn('[语音] Web Speech 失败')
+    }
+
+    synth.speak(u)
+  }, 200)
 }
 
 export function stopSpeaking() {
