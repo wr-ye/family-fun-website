@@ -125,3 +125,11 @@ export function speak(text: string) {
     }
   }, 1000)
 }
+
+export function stopSpeaking() {
+  speakingId++
+  try {
+    window.speechSynthesis?.cancel()
+    if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null }
+  } catch {}
+}
