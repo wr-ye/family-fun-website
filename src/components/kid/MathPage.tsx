@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useProgress } from '@/hooks/useProgress'
 import { generateCountQuestion, generateCompareQuestion, generateAddSubQuestion } from '@/data/math'
 import { playCorrectSound, playWrongSound, playClickSound } from '@/utils/sounds'
+import { speak } from '@/utils/speech'
 import { MathQuestion } from '@/types'
 
 type GameType = 'count' | 'compare' | 'addsub'
@@ -30,8 +31,11 @@ export default function MathPage() {
 
   const startGame = useCallback((type: GameType) => {
     setGameType(type)
-    setQuestion(generateQuestion(type))
+    const q = generateQuestion(type)
+    setQuestion(q)
     setFeedback(null)
+    // 朗读题目
+    setTimeout(() => speak(q.question), 400)
   }, [])
 
   const handleAnswer = useCallback((answer: number) => {
@@ -41,15 +45,19 @@ export default function MathPage() {
       setScore(s => s + 1)
       completeMath()
       playCorrectSound()
+      setTimeout(() => speak('答对了，真棒'), 300)
       setTimeout(() => {
         const newQ = generateQuestion(gameType!)
         setQuestion(newQ)
         setFeedback(null)
-      }, 1500)
+        // 朗读下一题
+        setTimeout(() => speak(newQ.question), 500)
+      }, 2000)
     } else {
       setFeedback('wrong')
       playWrongSound()
-      setTimeout(() => setFeedback(null), 1000)
+      setTimeout(() => speak('再想想哦'), 200)
+      setTimeout(() => setFeedback(null), 1500)
     }
   }, [question, feedback, gameType, completeMath])
 
