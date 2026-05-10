@@ -106,8 +106,10 @@ export default function MathPage() {
           exit={{ opacity: 0, y: -30 }}
           className="bg-white rounded-3xl shadow-xl p-8 w-full max-w-sm flex flex-col items-center gap-6"
         >
-          {/* 题目 */}
-          <p className="text-2xl font-bold text-gray-700 text-center">{question.question}</p>
+          {/* 题目：显示用 display（数学符号），语音用 question（中文朗读） */}
+          <p className="text-2xl font-bold text-gray-700 text-center">
+            {question.display || question.question}
+          </p>
 
           {/* Emoji 展示 */}
           {question.emojis && (

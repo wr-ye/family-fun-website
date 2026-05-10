@@ -23,6 +23,7 @@ export interface MathQuestion {
   id: string
   type: 'count' | 'compare' | 'addsub'
   question: string
+  display?: string  // 可选，用于显示（纯数学符号），question 用于语音
   emojis?: string
   options: number[]
   answer: number

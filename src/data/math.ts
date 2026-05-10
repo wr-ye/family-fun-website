@@ -73,6 +73,9 @@ export function generateAddSubQuestion(): MathQuestion {
     id: `addsub-${Date.now()}`,
     type: 'addsub',
     question: isAdd
+      ? `${a} 加 ${b} 等于几？`
+      : `${big} 减 ${small} 等于几？`,
+    display: isAdd
       ? `${a} + ${b} = ?`
       : `${big} - ${small} = ?`,
     emojis: display,
