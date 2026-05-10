@@ -26,8 +26,7 @@ export function generateCountQuestion(): MathQuestion {
   return {
     id: `count-${Date.now()}`,
     type: 'count',
-    question: `数数看，有几个${fruit}？`,
-    display: `数一数，有几个${fruit}？`,
+    question: `数一数，有几个${fruit}？`,
     emojis: fruit.repeat(count),
     options: generateOptions(count),
     answer: count,
