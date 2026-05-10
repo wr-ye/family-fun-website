@@ -1,65 +1,70 @@
 /**
  * 语音朗读工具
  *
- * 策略：代理 TTS 立即触发，Web Speech 200ms 后备用（双保险）
+ * 策略：
+ * 1. preload() 提前下载音频（不播放）
+ * 2. speak() 播放已缓存的音频，无网络延迟
  */
 
 let speakingId = 0
 let currentAudio: HTMLAudioElement | null = null
 
-function calcTimeout(text: string): number {
-  return Math.max(text.length * 400 + 3000, 6000)
+// 预加载缓存
+const audioCache = new Map<string, Blob>()
+let cacheId = 0
+
+/** 预加载 TTS 音频（只下载不播放） */
+export function preload(text: string) {
+  if (audioCache.has(text)) return
+  const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim()
+  const id = ++cacheId
+  fetch(`/tts?audio=${encodeURIComponent(clean)}`)
+    .then(r => r.blob())
+    .then(blob => { if (blob.size >= 100) audioCache.set(text, blob) })
+    .catch(() => {})
 }
 
-/** 通过 TTS 代理请求语音（百度/有道/腾讯三级备用） */
-function playProxyTTS(text: string, id: number): Promise<boolean> {
+/** 播放预缓存或实时下载的 TTS 音频 */
+function playFromCache(text: string, id: number): Promise<boolean> {
   return new Promise((resolve) => {
-    try {
-      const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim() || text
-      const proxyUrl = `/tts?audio=${encodeURIComponent(clean)}`
+    const tryPlay = (blob: Blob) => {
+      if (id !== speakingId) { resolve(false); return }
+      const audioUrl = URL.createObjectURL(blob)
+      const audio = new Audio(audioUrl)
+      audio.volume = 1
+      currentAudio = audio
 
-      fetch(proxyUrl)
-        .then(r => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`)
-          return r.blob()
-        })
-        .then(blob => {
-          if (blob.size < 100) throw new Error('Audio too small')
-          if (id !== speakingId) { resolve(false); return }
-
-          const audioUrl = URL.createObjectURL(blob)
-          const audio = new Audio(audioUrl)
-          audio.volume = 1
-          currentAudio = audio
-
-          let audioValid = true
-          audio.addEventListener('loadedmetadata', () => {
-            if (audio.duration < 0.3) audioValid = false
-          })
-
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl)
-            currentAudio = null
-            if (!audioValid && id === speakingId) {
-              console.warn(`[语音] 代理 TTS 无声, ${audio.duration.toFixed(2)}s`)
-              resolve(false)
-            } else {
-              resolve(true)
-            }
-          }
-          audio.onerror = () => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) }
-
-          audio.play().then(() => {
-            if (id === speakingId) console.log(`[语音] 代理: "${clean.substring(0, 20)}" (${(blob.size / 1024).toFixed(0)}KB)`)
-          }).catch(() => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) })
-        })
-        .catch(e => {
-          if (id === speakingId) console.warn('[语音] 代理 TTS 失败:', e.message)
+      let audioValid = true
+      audio.addEventListener('loadedmetadata', () => { if (audio.duration < 0.3) audioValid = false })
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl); currentAudio = null
+        if (!audioValid && id === speakingId) {
+          console.warn(`[语音] TTS 无声`)
           resolve(false)
-        })
+        } else { resolve(true) }
+      }
+      audio.onerror = () => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) }
+      audio.play().then(() => {
+        if (id === speakingId) console.log(`[语音] ✓ "${text.substring(0, 20)}"`)
+      }).catch(() => { URL.revokeObjectURL(audioUrl); currentAudio = null; resolve(false) })
+    }
 
-      setTimeout(() => resolve(false), calcTimeout(text) + 5000)
-    } catch { resolve(false) }
+    // 有缓存 → 立即播放
+    const cached = audioCache.get(text)
+    if (cached) { tryPlay(cached); return }
+
+    // 无缓存 → 实时下载
+    const clean = text.replace(/[^\u4e00-\u9fff0-9]/g, ' ').trim()
+    fetch(`/tts?audio=${encodeURIComponent(clean)}`)
+      .then(r => r.blob())
+      .then(blob => {
+        if (blob.size >= 100) audioCache.set(text, blob)
+        tryPlay(blob)
+      })
+      .catch(e => {
+        if (id === speakingId) console.warn('[语音] TTS 失败:', e.message)
+        resolve(false)
+      })
   })
 }
 
@@ -90,10 +95,10 @@ export function speak(text: string) {
     currentAudio = null
   }
 
-  // === 代理 TTS 立即触发（预处理多音字）===
-  playProxyTTS(text, id)
+  // 播放（优先用缓存，没有则实时下载）
+  playFromCache(text, id)
 
-  // === Web Speech 200ms 后备用 ===
+  // Web Speech 200ms 后备用
   setTimeout(() => {
     if (id !== speakingId) return
     const synth = window.speechSynthesis
@@ -101,22 +106,11 @@ export function speak(text: string) {
     if (currentAudio) return
 
     const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'zh-CN'
-    u.rate = 0.85
-    u.pitch = 1.0
-    u.volume = 1
-
+    u.lang = 'zh-CN'; u.rate = 0.85; u.pitch = 1.0; u.volume = 1
     let started = false
-    u.onstart = () => {
-      started = true
-      if (id === speakingId) console.log('[语音] Web Speech ✓')
-    }
+    u.onstart = () => { started = true; if (id === speakingId) console.log('[语音] Web Speech ✓') }
     u.onend = () => { if (id === speakingId && started) console.log(`[语音] ✓ "${text.substring(0, 20)}"`) }
-    u.onerror = () => {
-      if (started) return
-      if (id === speakingId) console.warn('[语音] Web Speech 失败')
-    }
-
+    u.onerror = () => { if (started || id !== speakingId) return; console.warn('[语音] Web Speech 失败') }
     synth.speak(u)
   }, 200)
 }

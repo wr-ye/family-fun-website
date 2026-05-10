@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useProgress } from '@/hooks/useProgress'
 import { generateCountQuestion, generateCompareQuestion, generateAddSubQuestion } from '@/data/math'
 import { playCorrectSound, playWrongSound, playClickSound } from '@/utils/sounds'
-import { speak } from '@/utils/speech'
+import { speak, preload } from '@/utils/speech'
 import { MathQuestion } from '@/types'
 
 type GameType = 'count' | 'compare' | 'addsub'
@@ -34,7 +34,8 @@ export default function MathPage() {
     const q = generateQuestion(type)
     setQuestion(q)
     setFeedback(null)
-    // 朗读题目
+    // 立即预加载题目音频
+    preload(q.question)
     setTimeout(() => speak(q.question), 400)
   }, [])
 
@@ -45,17 +46,21 @@ export default function MathPage() {
       setScore(s => s + 1)
       completeMath()
       playCorrectSound()
+      // 立即预加载"答对了"音频（不等 300ms）
+      preload('答对了，真棒')
       setTimeout(() => speak('答对了，真棒'), 300)
       setTimeout(() => {
         const newQ = generateQuestion(gameType!)
         setQuestion(newQ)
         setFeedback(null)
-        // 朗读下一题（等待上一句 TTS 播完约 1.5s）
+        // 新题生成时立即预加载，等 1600ms 后再播
+        preload(newQ.question)
         setTimeout(() => speak(newQ.question), 1600)
       }, 2500)
     } else {
       setFeedback('wrong')
       playWrongSound()
+      preload('再想想哦')
       setTimeout(() => speak('再想想哦'), 200)
       setTimeout(() => setFeedback(null), 2000)
     }
