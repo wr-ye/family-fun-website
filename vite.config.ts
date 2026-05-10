@@ -9,7 +9,8 @@ export default defineConfig({
       name: 'tts-proxy',
       configureServer(server) {
         server.middlewares.use('/tts', async (req, res) => {
-          const url = new URL(req.url, 'http://localhost')
+          const rawUrl = String(req.url ?? '/')
+          const url = new URL(rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl, 'http://localhost')
           const audio = url.searchParams.get('audio') || ''
 
           // 清理：只保留中文和数字
